@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 from tqdm import tqdm
 
-from core.llm import check_ollama, check_hardware, translate_chunk
+from core.llm import check_ollama, check_hardware, translate_chunk, get_best_model
 from core.cache import TranslationCache
 from core.chunker import chunk_text, chunk_by_pages, chunk_by_chapters
 from extractors.pdf import extract_pdf, get_pdf_info
@@ -30,24 +30,34 @@ def print_header():
     print("="*50)
 
 
-def check_system(model):
-    """Verifica hardware y Ollama antes de empezar."""
+def check_system(model=None):
+    """Verifica hardware y Ollama, elige modelo automáticamente si no se especifica."""
     print(f"\n🖥️  Hardware: {check_hardware()}")
-    
+
     models = check_ollama()
     if models is None:
         print("❌ Ollama no está corriendo.")
         print("   Inicialo con: ollama serve")
         sys.exit(1)
-    
+
     print(f"✅ Ollama activo | Modelos disponibles: {', '.join(models)}")
-    
-    if model not in models:
-        print(f"❌ Modelo '{model}' no encontrado.")
-        print(f"   Descargalo con: ollama pull {model}")
-        sys.exit(1)
-    
-    print(f"✅ Modelo '{model}' listo\n")
+
+    # Si no se especificó modelo, elegir automáticamente
+    if model is None or model == "auto":
+        model, reason = get_best_model(models)
+        if model is None:
+            print("❌ No hay modelos descargados en Ollama.")
+            print("   Descargá uno con: ollama pull qwen2.5:7b")
+            sys.exit(1)
+        print(f"✅ Modelo '{model}' {reason}\n")
+    else:
+        if model not in models:
+            print(f"❌ Modelo '{model}' no encontrado.")
+            print(f"   Descargalo con: ollama pull {model}")
+            sys.exit(1)
+        print(f"✅ Modelo '{model}' listo\n")
+
+    return model
 
 
 def translate_pdf(file_path, target_lang, model):
@@ -185,8 +195,8 @@ def main():
         help="Idioma destino (default: es)"
     )
     parser.add_argument(
-        "--model", default="qwen2.5:14b",
-        help="Modelo de Ollama a usar (default: qwen2.5:14b)"
+    "--model", default="auto",
+    help="Modelo de Ollama a usar (default: auto)"
     )
     
     args = parser.parse_args()
@@ -196,13 +206,13 @@ def main():
         print(f"❌ Archivo no encontrado: {file_path}")
         sys.exit(1)
     
-    check_system(args.model)
+    model = check_system(args.model)
     
     ext = file_path.suffix.lower()
     if ext == ".pdf":
-        translate_pdf(str(file_path), args.lang, args.model)
+        translate_pdf(str(file_path), args.lang, model)
     elif ext == ".epub":
-        translate_epub(str(file_path), args.lang, args.model)
+        translate_epub(str(file_path), args.lang, model)
     else:
         print(f"❌ Formato no soportado: {ext}")
         print("   Formatos soportados: .pdf, .epub")
